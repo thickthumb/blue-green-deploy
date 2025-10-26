@@ -1,0 +1,78 @@
+user nginx;
+worker_processes auto;
+
+
+events {
+    worker_connections 1024;
+}
+    
+http {
+
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout 65;
+    
+        # Define the two pool members (fixed by container names)
+    # The internal container port is APP_INTERNAL_PORT (e.g., 3000)
+
+    # 1. UPSTREAM FOR BLUE PRIMARY (Default: Blue Active, Green Backup)
+    upstream blue_active_group {
+        max_fails=1
+        fail_timeout=1s 
+        server app_blue:${APP_INTERNAL_PORT} max_fails=1 fail_timeout=1s;
+        
+        server app_green:${APP_INTERNAL_PORT} backup;
+    }
+
+        # 2. UPSTREAM FOR GREEN PRIMARY (Used when ACTIVE_POOL=green)
+        upstream green_active_group {
+        
+        server app_green:${APP_INTERNAL_PORT} max_fails=1 fail_timeout=1s;
+        
+        server app_blue:${APP_INTERNAL_PORT} backup;
+    }
+
+    # Use a variable to select the active upstream group based on the environment variable
+    # If ACTIVE_POOL is 'blue', use blue_active_group. Otherwise, use green_active_group.
+    map "$ACTIVE_POOL" $upstream_group {
+        "blue" blue_active_group;
+        default green_active_group;
+    }
+
+    server {
+        listen ${NGINX_PORT};
+        server_name localhost;
+
+        location / {
+            # Use the dynamically selected upstream group
+            proxy_pass http://$upstream_group;
+
+            # --- Failover Policy: Crucial for Zero Failed Client Requests ---
+            
+            # Retry on connection error, timeout, or server 5xx errors.
+            proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+            
+            # Allow Nginx to try the next upstream (the backup) exactly once
+            proxy_next_upstream_tries 2; 
+            
+            # Maximum time to wait for a successful response from all upstreams
+            proxy_next_upstream_timeout 2s;
+
+            # Fast connection/read timeout to quickly trigger failover
+            proxy_connect_timeout 1s;
+            proxy_read_timeout 1s;
+            proxy_send_timeout 2s;
+            send_timeout 9s; 
+
+            # --- Header Forwarding: Do not strip headers ---
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # The Nodejs app's X-App-Pool and X-Release-Id headers will be forwarded to the client
+            # because we do not override them here.
+        }
+    }
+}

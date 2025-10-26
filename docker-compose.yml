@@ -1,0 +1,66 @@
+version: '3.8'
+
+# Load all parameters from blue-green.env
+# env_file:
+#   - blue-green.env
+
+services:
+  # --- Nginx Reverse Proxy Service ---
+  nginx:
+    container_name: nginx_proxy
+    image: nginx:latest
+    ports:
+      # Public entrypoint for the service
+      - "${NGINX_PORT}:8080"
+    volumes:
+      # Mount the template and map the generated config to Nginx's default location
+      - ./nginx-conf.template:/etc/nginx/templates/nginx-conf.template:ro
+    environment:
+      # Pass required variables for envsubst templating
+      - NGINX_PORT
+      - ACTIVE_POOL
+      - APP_INTERNAL_PORT
+    command: >
+      /bin/bash -c "
+      # Render the final nginx.conf from the template using environment variables
+      envsubst '$$NGINX_PORT $$ACTIVE_POOL $$APP_INTERNAL_PORT' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf &&
+      # Start Nginx
+      nginx -g 'daemon off;'
+      "
+    depends_on:
+      - app_blue
+      - app_green
+    networks:
+      - bg-network
+
+  # --- Blue Application Service (Primary Default) ---
+  app_blue:
+    container_name: app_blue
+    image: ${BLUE_IMAGE}
+    ports:
+      # Direct port exposure for the grader to induce chaos
+      - "${BLUE_APP_PORT}:${APP_INTERNAL_PORT}"
+    environment:
+      # Variables passed into the app container to generate the required headers
+      - APP_POOL=blue
+      - RELEASE_ID=${RELEASE_ID_BLUE}
+    networks:
+      - bg-network
+
+  # --- Green Application Service (Backup Default) ---
+  app_green:
+    container_name: app_green
+    image: ${GREEN_IMAGE}
+    ports:
+      # Direct port exposure for the grader to induce chaos
+      - "${GREEN_APP_PORT}:${APP_INTERNAL_PORT}"
+    environment:
+      # Variables passed into the app container to generate the required headers
+      - APP_POOL=green
+      - RELEASE_ID=${RELEASE_ID_GREEN}
+    networks:
+      - bg-network
+
+networks:
+  bg-network:
+    driver: bridge
