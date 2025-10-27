@@ -16,19 +16,30 @@ services:
       - "${NGINX_PORT}:${NGINX_PORT}"
     # Mount the template and necessary scripts
     volumes:
+      # NOTE: Ensure the file 'nginx-conf.template' exists in the same directory!
       - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
     # Pass necessary environment variables into the container for envsubst
     environment:
       - NGINX_PORT=${NGINX_PORT}
       - ACTIVE_POOL=${ACTIVE_POOL}
       - APP_INTERNAL_PORT=${APP_INTERNAL_PORT}
-    # CRITICAL: This command runs envsubst and then starts Nginx in the foreground.
+    # CRITICAL: This command includes debugging steps (cat and nginx -t)
     # The 'exec' ensures the shell script is replaced by the Nginx process, keeping the container alive.
     command: >
       /bin/bash -c "
+      echo '--- 1. Substituting and generating config...' &&
       # 1. Substitute environment variables into the template and save to the Nginx config directory
       envsubst '$$NGINX_PORT $$ACTIVE_POOL $$APP_INTERNAL_PORT' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf &&
-      # 2. Start Nginx in the foreground
+      
+      echo '--- 2. Generated Configuration (for debugging) ---' &&
+      cat /etc/nginx/conf.d/default.conf &&
+      echo '---------------------------------------------------' &&
+
+      # 3. Test Nginx configuration. If this fails, the script will exit.
+      nginx -t &&
+      
+      echo '--- 4. Nginx config test successful. Starting server...' &&
+      # 4. Start Nginx in the foreground
       exec nginx -g 'daemon off;'
       "
     restart: unless-stopped
