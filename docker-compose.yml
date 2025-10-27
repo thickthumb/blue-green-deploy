@@ -1,5 +1,8 @@
+# version: '3.8'
 
-# Load all parameters from blue-green.env
+# # This file orchestrates the Nginx proxy and two Node.js application instances.
+# # All variable values are sourced from the 'blue_green_deployment.env' file.
+
 # env_file:
 #   - blue-green.env
 
@@ -7,59 +10,52 @@ services:
   # --- Nginx Reverse Proxy Service ---
   nginx:
     container_name: nginx_proxy
-    image: nginx:trixie-perl
+    image: nginx:latest
+    # Expose the Nginx port (e.g., 8080) publicly
     ports:
-      # Public entrypoint for the service
-      - "${NGINX_PORT}:80"
+      - "${NGINX_PORT}:${NGINX_PORT}"
+    # Mount the template and necessary scripts
     volumes:
-      # Mount the template and map the generated config to Nginx's default location
-      - ./nginx-conf.template:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    # Pass necessary environment variables into the container for envsubst
     environment:
-      # Pass required variables for envsubst templating
-      - NGINX_PORT
-      - ACTIVE_POOL
-      - APP_INTERNAL_PORT
+      - NGINX_PORT=${NGINX_PORT}
+      - ACTIVE_POOL=${ACTIVE_POOL}
+      - APP_INTERNAL_PORT=${APP_INTERNAL_PORT}
+    # CRITICAL: This command runs envsubst and then starts Nginx in the foreground.
+    # The 'exec' ensures the shell script is replaced by the Nginx process, keeping the container alive.
     command: >
       /bin/bash -c "
-      # Render the final nginx.conf from the template using environment variables
+      # 1. Substitute environment variables into the template and save to the Nginx config directory
       envsubst '$$NGINX_PORT $$ACTIVE_POOL $$APP_INTERNAL_PORT' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf &&
-      # Start Nginx
-      nginx -g 'daemon off;'
+      # 2. Start Nginx in the foreground
+      exec nginx -g 'daemon off;'
       "
+    restart: unless-stopped
     depends_on:
       - app_blue
       - app_green
-    networks:
-      - bg-network
 
-  # --- Blue Application Service (Primary Default) ---
+  # --- Blue Application Pool (Primary) ---
   app_blue:
     container_name: app_blue
     image: ${BLUE_IMAGE}
+    # Expose the port used for chaos testing (e.g., 8081)
     ports:
-      # Direct port exposure for the grader to induce chaos
       - "${BLUE_APP_PORT}:${APP_INTERNAL_PORT}"
     environment:
-      # Variables passed into the app container to generate the required headers
       - APP_POOL=blue
       - RELEASE_ID=${RELEASE_ID_BLUE}
-    networks:
-      - bg-network
+    restart: unless-stopped
 
-  # --- Green Application Service (Backup Default) ---
+  # --- Green Application Pool (Backup) ---
   app_green:
     container_name: app_green
     image: ${GREEN_IMAGE}
+    # Expose the port used for chaos testing (e.g., 8082)
     ports:
-      # Direct port exposure for the grader to induce chaos
       - "${GREEN_APP_PORT}:${APP_INTERNAL_PORT}"
     environment:
-      # Variables passed into the app container to generate the required headers
       - APP_POOL=green
       - RELEASE_ID=${RELEASE_ID_GREEN}
-    networks:
-      - bg-network
-
-networks:
-  bg-network:
-    driver: bridge
+    restart: unless-stopped
