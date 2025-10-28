@@ -18,17 +18,17 @@ http {
 
     # 1. UPSTREAM FOR BLUE PRIMARY (Default: Blue Active, Green Backup)
     upstream blue_active_group { 
-        server app_blue:${APP_INTERNAL_PORT} max_fails=1 fail_timeout=1s;
+        server app_blue:${BLUE_APP_PORT} max_fails=1 fail_timeout=1s;
         
-        server app_green:${APP_INTERNAL_PORT} backup;
+        server app_green:${GREEN_APP_PORT} backup;
     }
 
         # 2. UPSTREAM FOR GREEN PRIMARY (Used when ACTIVE_POOL=green)
         upstream green_active_group {
         
-        server app_green:${APP_INTERNAL_PORT} max_fails=1 fail_timeout=1s;
+        server app_green:${GREEN_APP_PORT} max_fails=1 fail_timeout=1s;
         
-        server app_blue:${APP_INTERNAL_PORT} backup;
+        server app_blue:${BLUE_APP_PORT} backup;
     }
 
     # Use a variable to select the active upstream group based on the environment variable
