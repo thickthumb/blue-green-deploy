@@ -17,9 +17,7 @@ http {
     # The internal container port is APP_INTERNAL_PORT (e.g., 3000)
 
     # 1. UPSTREAM FOR BLUE PRIMARY (Default: Blue Active, Green Backup)
-    upstream blue_active_group {
-        max_fails=1
-        fail_timeout=1s 
+    upstream blue_active_group { 
         server app_blue:${APP_INTERNAL_PORT} max_fails=1 fail_timeout=1s;
         
         server app_green:${APP_INTERNAL_PORT} backup;
@@ -36,15 +34,17 @@ http {
     # Use a variable to select the active upstream group based on the environment variable
     # If ACTIVE_POOL is 'blue', use blue_active_group. Otherwise, use green_active_group.
     map "$ACTIVE_POOL" $upstream_group {
+	default blue_active_group;
         "blue" blue_active_group;
-        default green_active_group;
+        "green" green_active_group;
     }
 
     server {
-        listen ${NGINX_PORT};
+        listen 80;
         server_name localhost;
 
         location / {
+
             # Use the dynamically selected upstream group
             proxy_pass http://$upstream_group;
 
